@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "thiel"
+version = "0.1.0"
+description = "Scan source code for secrets before they reach main."
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+keywords = ["security", "secrets", "git", "pre-push", "api-keys"]
+
+[project.scripts]
+thiel = "thiel:main"
+
+[tool.setuptools]
+py-modules = ["thiel"]
