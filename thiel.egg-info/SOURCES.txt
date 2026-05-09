@@ -1,0 +1,9 @@
+LICENSE
+README.md
+pyproject.toml
+thiel.py
+thiel.egg-info/PKG-INFO
+thiel.egg-info/SOURCES.txt
+thiel.egg-info/dependency_links.txt
+thiel.egg-info/entry_points.txt
+thiel.egg-info/top_level.txt
