@@ -336,6 +336,45 @@ python3 "{script_path}" hook
     print(c(CYAN, '  "Secrets are the engine of every monopoly. Guard yours."\n'))
 
 
+def cmd_help(args):
+    print_banner()
+    print(c(BOLD, '  What is thiel?\n'))
+    print('  thiel scans your source code for accidentally committed secrets —')
+    print('  API keys, tokens, passwords, and private keys — before they reach')
+    print('  your git history (and the internet).\n')
+    print(c(BOLD, '  Commands:\n'))
+    cmds = [
+        ('thiel scan [path]',      'Scan git-tracked files for secrets (default: current directory)'),
+        ('thiel scan --all',       'Scan every file, not just git-tracked ones'),
+        ('thiel install',          'Install thiel as a git pre-push hook in this repo'),
+        ('thiel install --force',  'Overwrite an existing pre-push hook'),
+        ('thiel uninstall',        'Remove the thiel pre-push hook from this repo'),
+        ('thiel hook',             'Run directly as a git pre-push hook (reads refs from stdin)'),
+        ('thiel help',             'Show this message'),
+    ]
+    for cmd, desc in cmds:
+        print(f'  {c(CYAN, cmd):<40}  {c(DIM, desc)}')
+    print()
+    print(c(BOLD, '  What it detects:\n'))
+    categories = [
+        'AWS Access/Secret Keys',
+        'OpenAI & Anthropic API Keys',
+        'GitHub Tokens (PAT, OAuth, App)',
+        'Google API Keys & OAuth Tokens',
+        'Stripe, Slack, Twilio, SendGrid, Mailgun',
+        'HuggingFace & Databricks Tokens',
+        'Private Keys (RSA, EC, DSA, OpenSSH)',
+        'Generic API Key / Secret assignments',
+        'Hardcoded passwords',
+    ]
+    for cat in categories:
+        print(f'  {c(DIM, "·")} {cat}')
+    print()
+    print(c(DIM, '  Tip: run `thiel install` once per repo and every future push is'))
+    print(c(DIM, '  scanned automatically. No secrets reach origin/main.\n'))
+    print(c(YELLOW, '  "Every great business is built on a secret. Keep yours out of git."\n'))
+
+
 def cmd_uninstall(args):
     """Remove the thiel pre-push hook from the current git repo."""
     try:
@@ -386,6 +425,8 @@ def main():
 
     sub.add_parser('uninstall', help='Remove the git pre-push hook')
 
+    sub.add_parser('help', help='Show what thiel does and how to use it')
+
     args = parser.parse_args()
 
     if args.command == 'scan':
@@ -396,9 +437,10 @@ def main():
         cmd_install(args)
     elif args.command == 'uninstall':
         cmd_uninstall(args)
+    elif args.command == 'help':
+        cmd_help(args)
     else:
-        print_banner()
-        parser.print_help()
+        cmd_help(args)
 
 
 if __name__ == '__main__':
