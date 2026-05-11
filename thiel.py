@@ -262,7 +262,7 @@ def print_verdict(findings: list[dict], hook_mode: bool):
 
 def cmd_scan(args):
     print_banner()
-    root = Path(args.path) if hasattr(args, 'path') and args.path else Path('.')
+    root = Path(args.path)
     print(c(CYAN, f'  Scanning {root.resolve()} ...\n'))
 
     if args.all:
