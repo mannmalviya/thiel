@@ -97,12 +97,28 @@ SKIP_FILES = {'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'Pipfile.lock'
 # ── Scanning logic ────────────────────────────────────────────────────────────
 
 def compile_patterns():
+    """
+    Pre-compile every regex in PATTERNS so the scanner doesn't recompile per line.
+
+    Returns:
+        list[tuple[re.Pattern, str]]: (compiled pattern, human-readable name) pairs.
+    """
     return [(re.compile(p), name) for p, name in PATTERNS]
 
 COMPILED = compile_patterns()
 
 
 def should_skip(path: Path) -> bool:
+    """
+    Decide whether a path is in a skip-listed directory, has a skip-listed
+    extension, or is a known lockfile / minified asset.
+
+    Args:
+        path (Path): Filesystem path to check.
+
+    Returns:
+        bool: True if the scanner should ignore this path.
+    """
     for part in path.parts:
         if part in SKIP_DIRS:
             return True
@@ -118,6 +134,17 @@ def should_skip(path: Path) -> bool:
 
 
 def scan_content(content: str, filepath: str) -> list[dict]:
+    """
+    Walk every line of file content and record matches for any known secret
+    pattern, skipping lines that look like placeholders.
+
+    Args:
+        content (str): Raw text of the file being scanned.
+        filepath (str): Path string used to label findings.
+
+    Returns:
+        list[dict]: One dict per match with keys file, line, type, content.
+    """
     findings = []
     lines = content.splitlines()
     for lineno, line in enumerate(lines, 1):
@@ -139,6 +166,16 @@ def scan_content(content: str, filepath: str) -> list[dict]:
 
 
 def scan_file(path: Path) -> list[dict]:
+    """
+    Read a single file from disk and scan it for secrets. Silently returns an
+    empty list for skip-listed or unreadable files.
+
+    Args:
+        path (Path): File to scan.
+
+    Returns:
+        list[dict]: Findings produced by scan_content, or [] if skipped/unreadable.
+    """
     if should_skip(path):
         return []
     try:
@@ -150,8 +187,12 @@ def scan_file(path: Path) -> list[dict]:
 
 def get_pushed_files() -> list[Path] | None:
     """
-    Read stdin for pre-push hook refs and return files changed in those commits.
-    Returns None if we can't determine the set (fall back to full scan).
+    Parse pre-push hook refs from stdin and diff each ref range to collect
+    the files that are about to be pushed.
+
+    Returns:
+        list[Path] | None: Files changed in the pushed commits, or None if
+        the set couldn't be determined (caller should fall back to a full scan).
     """
     files = set()
     for line in sys.stdin:
@@ -184,7 +225,13 @@ def get_pushed_files() -> list[Path] | None:
 
 
 def scan_git_tracked() -> list[Path]:
-    """Return all git-tracked files in the repo."""
+    """
+    List every git-tracked file in the current repo, falling back to a
+    recursive directory walk if git is unavailable.
+
+    Returns:
+        list[Path]: Tracked files from `git ls-files`, or all files under cwd.
+    """
     try:
         result = subprocess.run(
             ['git', 'ls-files'],
@@ -196,6 +243,15 @@ def scan_git_tracked() -> list[Path]:
 
 
 def scan_directory(root: Path) -> list[Path]:
+    """
+    Recursively collect every regular file under root, ignoring directories.
+
+    Args:
+        root (Path): Directory to walk.
+
+    Returns:
+        list[Path]: All files found beneath root.
+    """
     return [p for p in root.rglob('*') if p.is_file()]
 
 # ── Output ────────────────────────────────────────────────────────────────────
@@ -209,16 +265,40 @@ DIM    = '\033[2m'
 RESET  = '\033[0m'
 
 def no_color() -> bool:
+    """
+    Check whether ANSI color output should be suppressed (non-TTY stdout or
+    NO_COLOR env var set).
+
+    Returns:
+        bool: True if output should be plain text.
+    """
     return not sys.stdout.isatty() or os.environ.get('NO_COLOR')
 
 
 def c(code: str, text: str) -> str:
+    """
+    Wrap text in an ANSI color/style code, or return it unchanged when color
+    is disabled.
+
+    Args:
+        code (str): ANSI escape sequence (e.g. RED, BOLD).
+        text (str): Text to colorize.
+
+    Returns:
+        str: Colorized text, or the raw text if no_color() is true.
+    """
     if no_color():
         return text
     return f'{code}{text}{RESET}'
 
 
 def print_banner():
+    """
+    Print the thiel ASCII-art banner and tagline to stdout.
+
+    Returns:
+        None
+    """
     print(c(BOLD, """
   ████████╗██╗  ██╗██╗███████╗██╗
   ╚══██╔══╝██║  ██║██║██╔════╝██║
@@ -231,6 +311,16 @@ def print_banner():
 
 
 def print_findings(findings: list[dict]):
+    """
+    Group findings by file path and print each file's hits with line numbers,
+    secret type, and a snippet of the offending line.
+
+    Args:
+        findings (list[dict]): Findings produced by the scanner.
+
+    Returns:
+        None
+    """
     by_file: dict[str, list] = {}
     for f in findings:
         by_file.setdefault(f['file'], []).append(f)
@@ -244,6 +334,17 @@ def print_findings(findings: list[dict]):
 
 
 def print_verdict(findings: list[dict], hook_mode: bool):
+    """
+    Render the final scan result: either a clean-bill message or a failure
+    block with findings, a Thiel quote, and remediation guidance.
+
+    Args:
+        findings (list[dict]): All collected scanner findings.
+        hook_mode (bool): If True, append a "Push blocked." notice on failure.
+
+    Returns:
+        None
+    """
     if findings:
         quote = random.choice(CAUGHT_QUOTES)
         print(c(RED + BOLD, f'\n  ✗  {len(findings)} secret(s) found across '
@@ -261,6 +362,16 @@ def print_verdict(findings: list[dict], hook_mode: bool):
 # ── Commands ──────────────────────────────────────────────────────────────────
 
 def cmd_scan(args):
+    """
+    Handle the `thiel scan` subcommand: pick the file set (git-tracked or
+    every file via --all), scan each one, and print a verdict.
+
+    Args:
+        args (argparse.Namespace): Parsed CLI args with .path and .all.
+
+    Returns:
+        int: 1 if any findings were reported, 0 otherwise (exit code).
+    """
     print_banner()
     root = Path(args.path)
     print(c(CYAN, f'  Scanning {root.resolve()} ...\n'))
@@ -281,7 +392,17 @@ def cmd_scan(args):
 
 
 def cmd_hook(args):
-    """Called by the pre-push git hook — reads refs from stdin."""
+    """
+    Handle the `thiel hook` subcommand invoked by the pre-push git hook.
+    Reads pushed refs from stdin, scans the affected files, and exits 1
+    if any secrets are found.
+
+    Args:
+        args (argparse.Namespace): Parsed CLI args (unused, kept for parity).
+
+    Returns:
+        None: Always exits via sys.exit() rather than returning.
+    """
     files = get_pushed_files()
     if files is None:
         # Fallback: scan all tracked files
@@ -303,7 +424,17 @@ def cmd_hook(args):
 
 
 def cmd_install(args):
-    """Install thiel as a pre-push hook in the current git repo."""
+    """
+    Handle the `thiel install` subcommand: write a pre-push hook in the
+    current git repo that runs `thiel hook` on every push.
+
+    Args:
+        args (argparse.Namespace): Parsed CLI args with .force flag.
+
+    Returns:
+        None: Exits non-zero if not a git repo or if a hook already exists
+        without --force.
+    """
     try:
         result = subprocess.run(
             ['git', 'rev-parse', '--git-dir'],
@@ -337,6 +468,16 @@ python3 "{script_path}" hook
 
 
 def cmd_help(args):
+    """
+    Handle the `thiel help` subcommand: print the banner, usage summary,
+    detected secret categories, and a closing tip.
+
+    Args:
+        args (argparse.Namespace): Parsed CLI args (unused).
+
+    Returns:
+        None
+    """
     print_banner()
     print(c(BOLD, '  What is thiel?\n'))
     print('  thiel scans your source code for accidentally committed secrets —')
@@ -376,7 +517,16 @@ def cmd_help(args):
 
 
 def cmd_uninstall(args):
-    """Remove the thiel pre-push hook from the current git repo."""
+    """
+    Handle the `thiel uninstall` subcommand: delete the pre-push hook from
+    the current repo, but only if it was originally installed by thiel.
+
+    Args:
+        args (argparse.Namespace): Parsed CLI args (unused).
+
+    Returns:
+        None: Exits early if no hook exists or the hook wasn't ours.
+    """
     try:
         result = subprocess.run(
             ['git', 'rev-parse', '--git-dir'],
