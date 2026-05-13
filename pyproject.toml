@@ -11,7 +11,7 @@ license = { file = "LICENSE" }
 keywords = ["security", "secrets", "git", "pre-push", "api-keys"]
 
 [project.scripts]
-thiel = "thiel:main"
+thiel = "thiel.__main__:main"
 
 [tool.setuptools]
-py-modules = ["thiel"]
+packages = ["thiel"]
